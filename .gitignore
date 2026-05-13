@@ -1,0 +1,34 @@
+# ==========================================
+# Entornos virtuales de Python
+# ==========================================
+venv/
+env/
+.venv/
+
+# ==========================================
+# Variables de entorno y secretos (¡CRÍTICO!)
+# ==========================================
+.env
+.env.local
+
+# ==========================================
+# Archivos compilados y cachés de Python
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# ==========================================
+# Carpetas generadas por tu Sistema Multiagente
+# ==========================================
+output/
+chroma_db/
+*.mas2j
+*.asl
+
+# ==========================================
+# Archivos del sistema operativo (Opcional)
+# ==========================================
+.DS_Store
+Thumbs.db
