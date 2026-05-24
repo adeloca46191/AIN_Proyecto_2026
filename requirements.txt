@@ -1,4 +1,7 @@
-chromadb
-python-dotenv
-litellm
 google-adk
+litellm
+agentspeak
+chromadb
+pypdf
+python-dotenv
+typing-extensions
