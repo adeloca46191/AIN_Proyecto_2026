@@ -10,8 +10,37 @@ def search_github_examples(query: str) -> str:
     Busca ejemplos oficiales de código JASON (BDI) en GitHub basándose en la query.
     Retorna fragmentos de código relevantes.
     """
-    # Aquí irá la lógica para consultar la API de GitHub o buscar en el repositorio clonado.
-    return "Resultados simulados de GitHub..."
+    base_api_url = "https://api.github.com/repos/jason-lang/jason/contents/examples"
+    url = f"{base_api_url}/{path}".strip("/")
+    
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Python-urllib'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            
+            if isinstance(data, list):
+                items = [f"[{item['type']}] {item['path'].replace('examples/', '', 1)}" for item in data]
+                return f"Contenido de '{path or 'raíz'}':\n" + "\n".join(items)
+            
+            elif isinstance(data, dict) and data.get("type") == "file":
+                download_url = data.get("download_url")
+                if download_url:
+                    req_file = urllib.request.Request(download_url, headers={'User-Agent': 'Python-urllib'})
+                    with urllib.request.urlopen(req_file) as f_res:
+                        return f_res.read().decode('utf-8')
+                return "Error: No se encontró la URL de descarga del archivo."
+            else:
+                return "Respuesta inesperada de la API de GitHub."
+                
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return f"Error: No se encontró la ruta '{path}' en los ejemplos de Jason."
+        if e.code == 403:
+            return "Error: Límite de peticiones a la API de GitHub excedido. Inténtalo más tarde."
+        return f"Error HTTP al acceder a GitHub: {e.code} - {e.reason}"
+    except Exception as e:
+        return f"Error al intentar acceder a los ejemplos: {e}"
+
 
 # 2. Herramienta RAG (Para el ParallelAgent)
 def search_local_docs(query: str) -> str:
