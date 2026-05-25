@@ -3,14 +3,25 @@ import os
 import subprocess
 import chromadb
 import tempfile
+import urllib.request
+import urllib.error
+import json
+from pathlib import Path
+import shutil
 
-def search_github_examples(query: str) -> str:
-    """
-    Busca ejemplos oficiales de código JASON (BDI) en GitHub basándose en la query.
-    Retorna fragmentos de código relevantes.
-    """
-    base_api_url = "https://api.github.com/repos/jason-lang/jason/contents/examples"
-    url = f"{base_api_url}/{path}".strip("/")
+MAX_RETRIES = 5
+current_retries = 0
+
+def search_github_examples(path: str = "jason-lang/jason-examples") -> str:
+    """Busca ejemplos en el repositorio de GitHub."""
+    # Definimos la base, usando la ruta por defecto si 'path' llega vacío o mal
+    base_api_url = "https://api.github.com/repos"
+    
+    # Aseguramos que la variable 'path' siempre exista
+    if not path or path == "":
+        path = "jason-lang/jason-examples"
+        
+    url = f"{base_api_url}/{path.strip('/')}"
     
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Python-urllib'})

@@ -1,8 +1,8 @@
 # agents/orchestrator.py
 from google.adk.agents import LlmAgent, SequentialAgent
 from config_llm import modelo_compartido
-from agents.researcher import flujo_investigacion
-from agents.developer import flujo_desarrollo
+from .researcher import flujo_investigacion
+from .developer import flujo_desarrollo
 from tools.custom_tools import save_mas_code
 
 agente_guardado = LlmAgent(
