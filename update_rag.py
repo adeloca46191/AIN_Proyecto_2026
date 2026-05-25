@@ -1,7 +1,7 @@
 import os
 import shutil
 from pathlib import Path
-from rag import build_vectorstore, BASE_DIR, DOCS_PATH
+from tools.rag import build_vectorstore, BASE_DIR, DOCS_PATH
 
 def rebuild_rag_database():
     db_path = BASE_DIR / ".rag_db"
