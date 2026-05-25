@@ -11,6 +11,7 @@ import shutil
 
 MAX_RETRIES = 5
 current_retries = 0
+OUTPUT_DIR = Path("output")
 
 def search_github_examples(path: str = "jason-lang/jason-examples") -> str:
     """Busca ejemplos en el repositorio de GitHub."""
