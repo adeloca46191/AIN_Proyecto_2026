@@ -4,7 +4,6 @@ import subprocess
 import chromadb
 import tempfile
 
-# 1. Herramienta de GitHub (Para el ParallelAgent)
 def search_github_examples(query: str) -> str:
     """
     Busca ejemplos oficiales de código JASON (BDI) en GitHub basándose en la query.
@@ -42,80 +41,175 @@ def search_github_examples(query: str) -> str:
         return f"Error al intentar acceder a los ejemplos: {e}"
 
 
-# 2. Herramienta RAG (Para el ParallelAgent)
-def search_local_docs(query: str) -> str:
+def test_mas_code(mas2j_code: str, agents_dict: dict) -> str:
     """
-    Busca información en la documentación local de Jason usando ChromaDB.
+    Guarda y ejecuta el código en un directorio temporal para probar el sistema Multi-Agente usando jason.
+    NO guarda los archivos definitivamente, solo devuelve la salida para que verifiques si funciona.
+    Tiene un límite de 5 intentos por sesión.
+    
+    Args:
+        mas2j_code: El contenido completo del archivo de configuración .mas2j.
+        agents_dict: Un diccionario donde la clave es el nombre del archivo (ej. "agent1.asl") 
+                     y el valor es el contenido de ese archivo .asl.
     """
+    global current_retries, best_mas_state, best_error_count
+    
+    if current_retries >= MAX_RETRIES:
+         return f"ERROR: Has superado el límite de {MAX_RETRIES} intentos. Por favor, utiliza 'save_mas_code' para guardar el último código de inmediato y termina tu respuesta."
+         
+    current_retries += 1
+    
+    temp_dir = Path("temp_mas_project")
+    
     try:
-        # 1. Inicializar el cliente de ChromaDB apuntando a la base de datos persistente
-        client = chromadb.PersistentClient(path="./chroma_db")
+        # Limpiar si ya existe
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir()
         
-        # 2. Obtener la colección (asumimos que 'update_rag.py' ya la creó)
-        collection = client.get_collection(name="jason_docs")
+        # Guardar .mas2j
+        mas2j_file = temp_dir / "temp.mas2j"
+        mas2j_file.write_text(mas2j_code, encoding="utf-8")
         
-        # 3. Realizar la búsqueda semántica recuperando los top-k fragmentos
-        resultados = collection.query(
-            query_texts=[query],
-            n_results=3 # Devuelve los 3 fragmentos más relevantes
+        # Guardar archivos .asl
+        for filename, content in agents_dict.items():
+            if not filename.endswith(".asl"):
+                filename += ".asl"
+            (temp_dir / filename).write_text(content, encoding="utf-8")
+            
+        jason_command = resolve_jason_command()
+        if not jason_command:
+            return (
+                "ERROR: No se ha encontrado Jason. Instálalo y define la variable "
+                "de entorno JASON_BIN o añade el comando 'jason' al PATH."
+            )
+
+        result = subprocess.run(
+            [jason_command, "mas", "start", "--mas2j=temp.mas2j", "--console"],
+            cwd=str(temp_dir),
+            capture_output=True,
+            text=True,
+            timeout=15
         )
         
-        # 4. Formatear los resultados para que el LLM los entienda
-        documentos = resultados['documents'][0]
-        contexto = "\n\n".join(documentos)
+        # Heurística simple para contar errores basándonos en STDERR y el código de retorno
+        error_count = 0
+        if result.returncode != 0:
+            error_count += 10
+        if result.stderr:
+            error_count += len(result.stderr.split('\n'))
+            
+        if error_count < best_error_count:
+            best_error_count = error_count
+            best_mas_state = {
+                "mas2j": mas2j_code,
+                "agents": agents_dict
+            }
+            
+        # Format output
+        output = f"=== EJECUCIÓN DE PRUEBA (Intento {current_retries}/{MAX_RETRIES}) ===\nReturn code: {result.returncode}\n"
+        if result.stdout:
+            output += f"--- STDOUT ---\n{result.stdout}\n"
+        if result.stderr:
+            output += f"--- STDERR ---\n{result.stderr}\n"
+            
+        return output
         
-        return f"Contexto recuperado de la documentación:\n{contexto}"
-    
+    except subprocess.TimeoutExpired as e:
+        # En muchos sistemas, jason arranca la GUI y se queda pillado. Guardamos el estado.
+        if best_error_count == float('inf'):
+            best_mas_state = {
+                "mas2j": mas2j_code,
+                "agents": agents_dict
+            }
+            
+        output = f"=== EJECUCIÓN DE PRUEBA (Intento {current_retries}/{MAX_RETRIES}) ===\n"
+        output += "AVISO: La ejecución alcanzó el tiempo límite (15s). Esto es normal si Jason arranca una interfaz y no finaliza solo.\n"
+        if hasattr(e, 'stdout') and e.stdout:
+            stdout_str = e.stdout.decode('utf-8') if isinstance(e.stdout, bytes) else e.stdout
+            output += f"--- STDOUT (parcial) ---\n{stdout_str}\n"
+        return output
+        
+    except FileNotFoundError:
+        return "ERROR: El comando 'jason' no se encuentra en el sistema. Asegúrate de tener instalado Jason y agregado al PATH."
     except Exception as e:
-        return f"Error al buscar en la documentación local: {e}"
+        return f"ERROR inesperado al ejecutar: {e}"
+    finally:
+        # Limpiar
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        
 
-# 3. Herramienta de Pruebas (Para el LoopAgent)
-def test_mas_code(codigo_mas2j: str, codigos_asl: dict) -> str:
+def save_mas_code(mas_name: str, mas2j_code: str = "", agents_dict: dict = None) -> str:
     """
-    Guarda y ejecuta el código en un directorio temporal para probar el SMA.
-    codigos_asl debe ser un diccionario { 'nombre_agente.asl': 'codigo...' }
+    Guarda el sistema MAS completo (el .mas2j y los .asl) en su propia subcarpeta dentro de 'output'.
+    Si provees 'mas2j_code' y 'agents_dict', guardará esos. Si están vacíos, usará el 'mejor' código que lograste ejecutar en tus pruebas.
+    
+    Args:
+        mas_name: Nombre del proyecto (se usará para la subcarpeta en 'output' y el archivo .mas2j).
     """
-    # 1. Crear un directorio temporal que se borrará automáticamente al terminar
-    with tempfile.TemporaryDirectory() as temp_dir:
+    global current_retries, best_mas_state, best_error_count
+    
+    if agents_dict is None:
+        agents_dict = {}
         
-        # 2. Escribir el archivo .mas2j
-        ruta_mas2j = os.path.join(temp_dir, "test_project.mas2j")
-        with open(ruta_mas2j, "w") as f:
-            f.write(codigo_mas2j)
-            
-        # 3. Escribir los archivos .asl
-        for nombre_archivo, contenido in codigos_asl.items():
-            ruta_asl = os.path.join(temp_dir, nombre_archivo)
-            with open(ruta_asl, "w") as f:
-                f.write(contenido)
-                
-        # 4. Ejecutar Jason usando subprocess (requiere que JASON_BIN esté en el PATH)
-        try:
-            # Ejecutamos jason en modo consola/batch si es posible para que no abra interfaces gráficas
-            comando = ["jason", "test_project.mas2j"]
-            resultado = subprocess.run(
-                comando, 
-                cwd=temp_dir,          # Ejecutar dentro del directorio temporal
-                capture_output=True,   # Capturar stdout y stderr
-                text=True,             # Devolver como string
-                timeout=15             # Evitar que se quede colgado
-            )
-            
-            # 5. Devolver el log de la consola para que el Agente Revisor lo analice
-            if resultado.returncode == 0:
-                return f"ÉXITO. Salida:\n{resultado.stdout}"
-            else:
-                return f"ERROR DE COMPILACIÓN/EJECUCIÓN. Detalles:\n{resultado.stderr}\n{resultado.stdout}"
-                
-        except subprocess.TimeoutExpired:
-            return "ERROR: La ejecución superó el tiempo límite. Revisa si hay bucles infinitos."
-        except Exception as e:
-            return f"ERROR DEL SISTEMA al intentar ejecutar jason: {e}"
+    project_dir = OUTPUT_DIR / mas_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+    
+    code_mas2j = mas2j_code if mas2j_code else best_mas_state.get("mas2j", "")
+    code_agents = agents_dict if agents_dict else best_mas_state.get("agents", {})
+    
+    if not code_mas2j or not isinstance(code_agents, dict) or not code_agents:
+         return "ERROR: No hay código generado para guardar o no se ha probado previamente."
+         
+    try:
+        # Guardar .mas2j
+        mas_filename = f"{mas_name}.mas2j" if not mas_name.endswith(".mas2j") else mas_name
+        (project_dir / mas_filename).write_text(str(code_mas2j), encoding="utf-8")
         
-# 4. Herramienta de Guardado Final (Para el Agente Saver)
-def save_mas_code(codigo_mas2j: str, codigo_asl: dict) -> str:
-    """
-    Guarda el MAS completo (.mas2j + .asl) en su propia subcarpeta dentro del directorio 'output'.
-    """
-    # Lógica para crear la carpeta en /output y escribir los archivos definitivos.
-    return "Archivos guardados correctamente en /output/nuevo_proyecto"
+        # Guardar .asl
+        for filename, content in code_agents.items():
+            if not filename.endswith(".asl"):
+                filename += ".asl"
+            (project_dir / filename).write_text(str(content), encoding="utf-8")
+        
+        # Resetear estado para próximas llamadas del usuario
+        current_retries = 0
+        best_mas_state = {}
+        best_error_count = float('inf')
+        
+        return f"ÉXITO: Proyecto BDI guardado correctamente en {project_dir}"
+    except Exception as e:
+        return f"ERROR inesperado al guardar: {e}"
+
+    
+    def resolve_jason_command():
+        """
+        Busca el ejecutable de Jason en este orden:
+        1. Variable de entorno JASON_BIN
+        2. Comando 'jason' disponible en el PATH
+        3. Ruta típica de macOS (/Applications/jason)
+        4. Ruta típica de Windows (C:\\Jason\\bin\\jason.bat)
+        """
+        env_path = os.getenv("JASON_BIN")
+        if env_path:
+            return env_path
+
+        path_command = shutil.which("jason")
+        if path_command:
+            return path_command
+
+        default_macos_path = "/Applications/jason"
+        if Path(default_macos_path).exists():
+            return default_macos_path
+
+        default_windows_paths = [
+            r"C:\Jason\bin\jason.bat",
+            r"C:\Program Files\Jason\bin\jason.bat",
+            r"C:\Program Files (x86)\Jason\bin\jason.bat",
+        ]
+        for windows_path in default_windows_paths:
+            if Path(windows_path).exists():
+                return windows_path
+
+        return None

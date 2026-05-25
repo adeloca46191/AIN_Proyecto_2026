@@ -1,47 +1,34 @@
 import os
 from dotenv import load_dotenv
-# Importamos el orquestador principal que definirá el SequentialAgent
+
+# 1. Cargar las variables de entorno (API keys de .env)
+load_dotenv()
+
+# 2. Registrar el adaptador para modelos OpenAI/Qwen en el ADK
+try:
+    from typing import override
+except ImportError:
+    from typing_extensions import override
+
+from google.adk.models.lite_llm import LiteLlm
+from google.adk.models.registry import LLMRegistry
+
+class OpenAiLiteLlm(LiteLlm):
+    @classmethod
+    @override
+    def supported_models(cls):
+        return [r"openai/.*"]
+
+LLMRegistry.register(OpenAiLiteLlm)
+
+# 3. Importar el orquestador principal
 from agents.orchestrator import orquestador_principal
 
-def main():
-    # 1. Cargar las variables de entorno del archivo .env (API_KEY, rutas, etc.) [cite: 166]
-    load_dotenv()
-    
-    print("====================================================================")
-    print("=== Sistema Multi-Agente ADK - Generador de Razonadores BDI JASON ===")
-    print("====================================================================\n")
-    
-    # 2. Definir el prompt del usuario (Aquí pueden cambiarlo según el caso de evaluación)
-    # Ejemplo con el Caso 1: Serie de Fibonacci [cite: 271]
-    prompt_usuario = "Crea un agente que imprima la serie de Fibonacci hasta el valor 100." [cite: 271]
-    
-    # 3. Inicializar el Estado (Memoria Compartida)
-    # El estado es un diccionario de Python accesible y modificable por todos los agentes .
-    # Sirve para almacenar información clave que persiste entre pasos[cite: 55].
-    session_state = {
-        "prompt_original": prompt_usuario,      # Entrada inicial de la petición
-        "contexto_investigacion": "",            # Aquí el ParallelAgent guardará la documentación/ejemplos recuperados
-        "codigo_jason_borrador": "",             # Aquí el LoopAgent escribirá el código generado (.mas2j y .asl)
-        "resultado_test": "",                    # Almacena el log/resultado de test_mas_code [cite: 235]
-        "intento_actual": 0                      # Contador para no superar el límite de 5 intentos de testeo [cite: 236]
-    }
-    
-    print(f"[INPUT] Prompt del usuario: '{prompt_usuario}'\n")
-    print("[INFO] Iniciando el flujo de trabajo secuencial...")
-    
-    try:
-        # 4. Invocar al agente secuencial pasándole el estado inicial
-        # El framework ADK ejecutará la lista de sub-agentes en el orden establecido[cite: 89].
-        # Nota: Ajusta el método de ejecución (ej. .run() o .execute()) según la firma exacta de su SDK instalado.
-        resultado = orquestador_principal.run(state=session_state)
-        
-        print("\n====================================================================")
-        print("=== [ÉXITO] El proceso ha terminado correctamente ===")
-        print("Los archivos finales se han guardado en la carpeta /output.") [cite: 237]
-        print("====================================================================")
-        
-    except Exception as e:
-        print(f"\n[ERROR] Ocurrió un fallo crítico durante la ejecución del workflow: {e}")
+# 4. Exponer el agente para la interfaz web
+# En la mayoría de implementaciones ADK con interfaz web, el framework busca 
+# una variable principal (suele llamarse 'agent', 'app' o 'orquestador').
+# Asignamos nuestro workflow principal a la variable que el ADK Web espera leer:
+agent = orquestador_principal
 
-if __name__ == "__main__":
-    main()
+print("[INFO] Entorno cargado y LLM registrado.")
+print("[INFO] Orquestador listo. Inicia la interfaz web del ADK para comenzar a chatear.")

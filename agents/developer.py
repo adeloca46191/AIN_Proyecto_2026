@@ -1,36 +1,41 @@
-from google.adk.agents import LoopAgent
-# from google.adk.agents import Agent 
+# agents/developer.py
+from google.adk.agents import LlmAgent, LoopAgent
+from config_llm import modelo_compartido
+from tools.custom_tools import test_mas_code
 
-# 1. Agente Programador
-# Toma el contexto de la Fase 1 y genera el código BDI.
-agente_programador = Agent(
-    name="agente_programador_bdi",
-    instructions="""Eres un desarrollador experto en JASON.
-    Debes escribir el código para un sistema multi-agente basado en la solicitud original: {prompt_original}.
-    Utiliza esta teoría recuperada para no cometer errores de sintaxis: {teoria_jason}
-    Guíate por estos ejemplos prácticos: {ejemplos_jason}
+agente_programador = LlmAgent(
+    name="Programador_BDI",
+    model=modelo_compartido,
+    instruction="""Eres un programador experto en MAS BDI.
+    Crea el código para: {prompt_original}.
+    Basate en esta teoría: {teoria_jason} y estos ejemplos: {ejemplos_jason}.
     
-    Genera el contenido estructurado de los archivos .mas2j y los correspondientes .asl.""",
-    output_key="codigo_jason_borrador" # El código generado se guarda aquí para que lo lea el tester
+    REGLAS ESTRICTAS:
+    1. MAS nombre_proyecto { infrastructure: Centralised agents: nombre; }
+    2. Las variables empiezan con Mayúscula. 
+    3. Todos los planes terminan en PUNTO (.).
+    4. Genera el código estructurado en formato JSON o como texto claro para que el tester lo pueda extraer.
+    
+    Si vienes de un error previo, arréglalo basándote en: {resultado_test}""",
+    output_key="codigo_jason_borrador"
 )
 
-# 2. Agente Tester/Revisor
-# Prueba el código. Si funciona, rompe el bucle. Si falla, el bucle vuelve a empezar.
-agente_tester = Agent(
-    name="agente_tester_bdi",
-    instructions="""Eres un revisor estricto de código JASON.
-    Toma el código generado en el paso anterior y usa la herramienta 'test_mas_code' para compilarlo y probar el SMA[cite: 235].
+agente_tester = LlmAgent(
+    name="Tester_BDI",
+    model=modelo_compartido,
+    instruction="""Analiza el código generado en {codigo_jason_borrador}.
+    Usa 'test_mas_code' para compilarlo.
     
-    - Si la salida de la prueba es EXITOSA y no hay errores: Llama a la herramienta 'exit_loop' para terminar el proceso.
-    - Si la salida contiene ERRORES: Genera un reporte explicando qué falló para que el programador lo corrija en la siguiente iteración.""",
-    tools=["test_mas_code", "exit_loop"], # Usa las tools de testeo y la de salir del bucle
+    - Si la consola devuelve 'ÉXITO', usa la herramienta 'exit_loop' para terminar.
+    - Si devuelve 'ERROR', no salgas del bucle. Genera un reporte detallado del fallo para el programador.
+    
+    NUNCA añadas el token '<|channel|>commentary' al usar herramientas.""",
+    tools=[test_mas_code, "exit_loop"],
     output_key="resultado_test"
 )
 
-# 3. Empaquetar todo en el LoopAgent
-# Se ejecutará Programador -> Tester -> Programador -> Tester... hasta un máximo de 5 veces.
 flujo_desarrollo = LoopAgent(
-    name="flujo_desarrollo_iterativo",
+    name="flujo_programacion",
     sub_agents=[agente_programador, agente_tester],
-    max_iterations=5  # Condición de salida de seguridad
+    max_iterations=5
 )
